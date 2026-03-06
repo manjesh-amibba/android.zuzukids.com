@@ -1,0 +1,73 @@
+# Built application files
+*.apk
+*.ap_
+*.aab
+
+# Files for the Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+build/
+
+# Gradle files
+.gradle/
+**/build/
+
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Log Files
+*.log
+
+# Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Keystore files
+*.jks
+*.keystore
+
+# External native build
+.externalNativeBuild
+.cxx/
+
+# NDK
+ndkBuild/
+
+# Google Services
+google-services.json
+
+# Firebase Crashlytics
+crashlytics.properties
+
+# Navigation safe args
+.navigation/
+
+# Captures folder
+captures/
+
+# Android profiling
+*.hprof
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Kotlin
+.kotlin/
+
+# IntelliJ
+out/
+
+# Temporary files
+*.tmp
+*.temp
