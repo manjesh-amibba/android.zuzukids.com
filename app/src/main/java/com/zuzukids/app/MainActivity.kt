@@ -1,55 +1,66 @@
 package com.zuzukids.app
 
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
+import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.LinearLayout
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import android.widget.Toast
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.viewinterop.AndroidView
-import com.zuzukids.app.ui.theme.WebToAppsTheme
-import android.webkit.WebChromeClient
-import android.webkit.CookieManager
-import android.content.Intent
-import android.net.Uri
-import android.widget.LinearLayout
-
-import androidx.compose.runtime.*
-import androidx.compose.foundation.layout.*
 import androidx.compose.ui.platform.LocalContext
-import com.zuzukids.app.NetworkUtils
-import android.view.WindowManager
-import android.webkit.JavascriptInterface
+import androidx.compose.ui.viewinterop.AndroidView
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.tasks.Task
+import com.zuzukids.app.ui.theme.WebToAppsTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-import java.io.OutputStreamWriter
-
-
-import com.zuzukids.app.SetSystemBarsColor
-
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var googleSignInClient: GoogleSignInClient
-    private val RC_SIGN_IN = 1001
     private var webView: WebView? = null
+
+    private val signInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            handleSignInResult(task)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,13 +74,11 @@ class MainActivity : ComponentActivity() {
 
         disableScreenshots()
         setOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
-        
 
         val launchUrl = intent?.data?.toString() ?: "https://app.zuzukids.com/"
         
-        val css = """""".trimIndent()
-        val js = """""".trimIndent()
-    
+        val css = ""
+        val js = ""
 
         setContent {
             WebToAppsTheme {
@@ -78,8 +87,6 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize().padding(WindowInsets.systemBars.asPaddingValues()), 
                     verticalArrangement = Arrangement.Center
                 ) {
-                    
-                    
                     Box(modifier = Modifier.weight(1f)) {
                         WebViewContainer(launchUrl, css, js) { wv ->
                             webView = wv
@@ -90,18 +97,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun startGoogleLogin() {
+    private fun startGoogleLogin() {
         val signInIntent = googleSignInClient.signInIntent
-        startActivityForResult(signInIntent, RC_SIGN_IN)
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == RC_SIGN_IN) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            handleSignInResult(task)
-        }
+        signInLauncher.launch(signInIntent)
     }
 
     private fun handleSignInResult(completedTask: Task<GoogleSignInAccount>) {
@@ -166,62 +164,52 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun WebViewContainer(url: String, css: String, js: String, onWebViewCreated: (WebView) -> Unit) {
-    
-    // ========================= HIGHLIGHT: BACK HANDLER START =========================
-
     var wv by remember { mutableStateOf<WebView?>(null) }
     val context = LocalContext.current  
     var lastBackPressTime by remember { mutableStateOf(0L) }
-     BackHandler(enabled = true) {
-
+    
+    BackHandler(enabled = true) {
         val current = wv
         if (current?.canGoBack() == true) {
             current.goBack()
-            return@BackHandler
-        }
-
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastBackPressTime < 1500) {
-            (context as? ComponentActivity)?.finish()  // Exit App
         } else {
-            lastBackPressTime = currentTime
-            Toast.makeText(context, "Press again to exit", Toast.LENGTH_SHORT).show()
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastBackPressTime < 1500L) {
+                (context as? ComponentActivity)?.finish()
+            } else {
+                lastBackPressTime = currentTime
+                Toast.makeText(context, "Press again to exit", Toast.LENGTH_SHORT).show()
+            }
         }
     }
-    // ========================== HIGHLIGHT: BACK HANDLER END ==========================
-
 
     AndroidView(
-        factory = { context ->
-            WebView(context).apply {
+        factory = { ctx ->
+            WebView(ctx).apply {
                 configureWebView()
-                addJavascriptInterface((context as MainActivity).WebAppInterface(), "Android")
+                val activity = ctx as? MainActivity
+                if (activity != null) {
+                    addJavascriptInterface(activity.WebAppInterface(), "Android")
+                }
                 onWebViewCreated(this)
 
-                
-        if(!NetworkUtils.isOnline(context)) {
-            loadUrl("file:///android_asset/no-internet.html")
-        }else{
-            loadUrl(url)
-        }
-    
- 
+                if(!NetworkUtils.isOnline(ctx)) {
+                    loadUrl("file:///android_asset/no-internet.html")
+                } else {
+                    loadUrl(url)
+                }
             }
         },
         modifier = Modifier.fillMaxSize(),
         update = { view ->                   
-            wv = view                           // keep the latest instance for BackHandler
+            wv = view
         }
-
     )
 }
 
-
-
-
 fun WebView.configureWebView() {
     webViewClient = object : WebViewClient() {
-        override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
             val url = request?.url.toString()
             
             val action = getUrlPatterns().firstOrNull { it.regex.matches(url) }?.action
@@ -242,18 +230,18 @@ fun WebView.configureWebView() {
         }
     }
     webChromeClient = WebChromeClient()
-    settings.javaScriptEnabled = true
-    settings.allowFileAccess = true
-    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-    settings.domStorageEnabled = true
-    settings.allowContentAccess = true
-    settings.loadWithOverviewMode = true
-    settings.useWideViewPort = true
-    settings.javaScriptCanOpenWindowsAutomatically = true
-    settings.userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.180 Mobile Safari/537.36"
-    
-    
-        settings.cacheMode = WebSettings.LOAD_NO_CACHE
+    settings.apply {
+        javaScriptEnabled = true
+        allowFileAccess = true
+        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        domStorageEnabled = true
+        allowContentAccess = true
+        loadWithOverviewMode = true
+        useWideViewPort = true
+        javaScriptCanOpenWindowsAutomatically = true
+        userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.180 Mobile Safari/537.36"
+        cacheMode = WebSettings.LOAD_NO_CACHE
+    }
      
     CookieManager.getInstance().setAcceptCookie(true)
     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -263,15 +251,7 @@ fun WebView.configureWebView() {
     )
 }
 
-
-
-
-
-
-
 fun getUrlPatterns(): List<RegexPatternAction> = listOf()
-
-
 
 enum class BrowserType {
     INTERNAL,
@@ -281,60 +261,13 @@ enum class BrowserType {
 
 data class RegexPatternAction(val regex: Regex, val action: BrowserType)
 
-
-
-
-            fun ComponentActivity.disableScreenshots() {
-                window.setFlags(
-                    WindowManager.LayoutParams.FLAG_SECURE,
-                    WindowManager.LayoutParams.FLAG_SECURE
-                )
-            }
-        
+fun ComponentActivity.disableScreenshots() {
+    window.setFlags(
+        WindowManager.LayoutParams.FLAG_SECURE,
+        WindowManager.LayoutParams.FLAG_SECURE
+    )
+}
 
 fun ComponentActivity.setOrientation(orientation: Int) {
     requestedOrientation = orientation
 }
-
-
-fun getSocialLoginPatterns(): List<RegexPatternAction> = listOf(
-    RegexPatternAction(
-        Regex("""^https?://accounts\.google\.com(/signin.*|/login.*|/o/oauth2/.*|/signin/oauth).*"""),
-        BrowserType.INTERNAL
-    ),
-
-    RegexPatternAction(
-        Regex("""^https?://(www\.facebook\.com|m\.facebook\.com|fb\.com)/(login|v\d+\.\d+/dialog/oauth).*"""),
-        BrowserType.INTERNAL
-    ),
-
-    RegexPatternAction(
-        Regex("""^https?://(www\.)?linkedin\.com/(uas/login.*|uas/oauth.*|oauth/v2/authorization.*).*"""),
-        BrowserType.INTERNAL
-    ),
-
-    RegexPatternAction(
-        Regex("""^https?://(api\.twitter\.com/oauth.*|twitter\.com/login.*|twitter\.com/i/oauth2/.*).*"""),
-        BrowserType.INTERNAL
-    ),
-
-    RegexPatternAction(
-        Regex("""^https?://login\.live\.com(/oauth.*|/login.*).*"""),
-        BrowserType.INTERNAL
-    ),
-
-    RegexPatternAction(
-        Regex("""^https?://appleid\.apple\.com/auth/.*"""),
-        BrowserType.INTERNAL
-    ),
-
-    RegexPatternAction(
-        Regex("""^https?://github\.com/(login.*|login/oauth/.*).*"""),
-        BrowserType.INTERNAL
-    ),
-
-    RegexPatternAction(
-        Regex(""".*(/oauth.*|response_type=code).*"""),
-        BrowserType.INTERNAL
-    )
-)
