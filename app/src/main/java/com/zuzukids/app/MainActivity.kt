@@ -108,20 +108,30 @@ class MainActivity : ComponentActivity() {
             val idToken = account.idToken
             if (idToken != null) {
                 sendTokenToBackend(idToken)
+            } else {
+                Toast.makeText(this, "Login failed. Please try again.", Toast.LENGTH_SHORT).show()
             }
         } catch (e: ApiException) {
-            Toast.makeText(this, "Sign in failed: ${e.statusCode}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Login failed. Please check your connection and try again.", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun sendTokenToBackend(idToken: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val url = URL("https://api.zuzukids.com/auth/google")
+                val apiDomain = "https://api.zuzukids.com/"
+                val appDomain = "https://app.zuzukids.com/"
+                
+                val url = URL("${apiDomain}auth/google")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json")
+
+                val existingCookies = CookieManager.getInstance().getCookie(apiDomain)
+                if (!existingCookies.isNullOrEmpty()) {
+                    conn.setRequestProperty("Cookie", existingCookies)
+                }
 
                 val payload = "{\"google_token\": \"$idToken\"}"
                 val writer = OutputStreamWriter(conn.outputStream)
@@ -130,23 +140,66 @@ class MainActivity : ComponentActivity() {
                 writer.close()
 
                 val responseCode = conn.responseCode
+                
                 if (responseCode == HttpURLConnection.HTTP_OK) {
-                    // Success, handle cookies and reload webview
                     val cookies = conn.headerFields["Set-Cookie"]
                     withContext(Dispatchers.Main) {
                         cookies?.forEach { cookie ->
-                            CookieManager.getInstance().setCookie("https://app.zuzukids.com/", cookie)
+                            CookieManager.getInstance().setCookie(apiDomain, cookie)
+                            CookieManager.getInstance().setCookie(appDomain, cookie)
                         }
+                        CookieManager.getInstance().flush()
                         webView?.reload()
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Backend error: $responseCode", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Authentication failed. Please try again.", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "An error occurred. Please check your connection.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun performLogout() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val apiDomain = "https://api.zuzukids.com/"
+                val url = URL("${apiDomain}logout")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                
+                // credentials: 'include' logic: Include existing cookies in the request
+                val existingCookies = CookieManager.getInstance().getCookie(apiDomain)
+                if (!existingCookies.isNullOrEmpty()) {
+                    conn.setRequestProperty("Cookie", existingCookies)
+                }
+
+                val responseCode = conn.responseCode
+                
+                withContext(Dispatchers.Main) {
+                    // Clear local cookies regardless of server response
+                    CookieManager.getInstance().removeAllCookies {
+                        CookieManager.getInstance().flush()
+                        webView?.clearCache(true)
+                        webView?.clearHistory()
+                        webView?.reload()
+                    }
+                    
+                    if (responseCode != HttpURLConnection.HTTP_OK) {
+                        // Optional: Log or notify about server-side logout failure if necessary
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    // Even if network fails, we should clear local session
+                    CookieManager.getInstance().removeAllCookies {
+                        CookieManager.getInstance().flush()
+                        webView?.reload()
+                    }
                 }
             }
         }
@@ -157,6 +210,13 @@ class MainActivity : ComponentActivity() {
         fun googleLogin() {
             runOnUiThread {
                 startGoogleLogin()
+            }
+        }
+
+        @JavascriptInterface
+        fun logout() {
+            runOnUiThread {
+                performLogout()
             }
         }
     }
@@ -209,8 +269,8 @@ fun WebViewContainer(url: String, css: String, js: String, onWebViewCreated: (We
 
 fun WebView.configureWebView() {
     webViewClient = object : WebViewClient() {
-        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-            val url = request?.url.toString()
+        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean {
+            val url = request.url.toString()
             
             val action = getUrlPatterns().firstOrNull { it.regex.matches(url) }?.action
             return when (action) {
